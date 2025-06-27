@@ -1,0 +1,179 @@
+PROC IMPORT datafile="/home/u61739232/My Projects/walmart_store_sales.csv"
+			out = walmart_df
+    		dbms=csv REPLACE;
+    getnames=YES;
+run;
+
+PROC PRINT DATA=walmart_df;
+RUN;
+
+
+PROC CONTENTS DATA=walmart_df; 
+RUN;
+
+TITLE 'Histogram of Weekly Sales';
+proc univariate data=walmart_df;
+var Weekly_Sales;
+histogram / normal; /* Plot histogram with normal distribution curve */
+run;
+
+/* Checking the correlation */ 
+PROC CORR DATA=walmart_df;
+RUN;
+
+
+/* Using PROC MEANS to calculate summary statistics */
+proc means data=walmart_df;
+   var _numeric_; /* Specify the variables for which you want to calculate summary statistics */
+   output out=summary_stats mean= Mean std=StdDev min=Minimum max=Maximum; /* Specify the summary statistics you want to calculate */
+run;
+/* Print the summary statistics */
+proc print data=summary_stats;
+run;
+
+/* Check the missing value */ 
+PROC MEANS DATA=walmart_df NMISS;
+RUN;
+
+
+
+/* DATA EXPLORATION */
+PROC MEANS DATA=walmart_df MAX; 
+BY STORE; VAR WEEKLY_SALES; 
+TITLE 'Maximum sales/Per Store'; 
+RUN;
+
+
+/* Viewing the maximum sales per week */
+data walmart_df;
+    set walmart_df;
+    by Store;
+    if first.Store then max_sales = Weekly_Sales;
+    else if Weekly_Sales > max_sales then max_sales = Weekly_Sales;
+    if last.Store;
+    keep Store max_sales;
+run;
+
+PROC PRINT DATA=work.walmart_df;
+RUN;
+
+/* Sort the result by descending order of maximum sales */
+proc sort data=walmart_df;
+    by descending max_sales;
+run;
+
+/* Keep only the store with the highest maximum sales */
+data walmart_df;
+    set walmart_df;
+    if _n_ = 1;
+run;
+
+
+
+/*store has maximum standard deviation*/ 
+PROC MEANS DATA=walmart_df; 
+CLASS STORE; VAR WEEKLY_SALES; 
+OUTPUT OUT=MEANANA(DROP= _TYPE_ _FREQ_ ) STD=STDBYSALES MEAN=MEANBYSALES; 
+RUN;
+
+PROC SORT DATA=walmart_df; 
+TITLE 'Store has maximum standard deviation'; 
+BY DESCENDING STDBYSALES; WHERE STORE NE .;
+RUN;
+
+/* Find out the coefficient of mean to standard deviation */ 
+PROC MEANS DATA=walmart_df CV; 
+CLASS STORE; VAR WEEKLY_SALES; 
+RUN;
+
+
+/* Which store/s has good quarterly growth rate in Q3’2012 */ 
+DATA walmart_df;
+SET walmart_df; 
+WHERE YEAR(DATE) =2012; 
+RUN; 
+
+
+/* Calculate growth rate */ 
+DATA G3 Growth; 
+FORMAT GROWTH_RATE PERCENT8.2; 
+SET walmart_df; 
+BY STORE DATE WEEKLY_SALES; 
+LAG_SALES=IFN(FIRST.STORE,0,LAG(WEEKLY_SALES)); 
+IF LAG_SALES NE 0 THEN GROWTH_RATE=(WEEKLY_SALES/LAG_SALES)-1; 
+RUN;
+
+
+
+PROC TIMESERIES DATA=walmart_df OUT=walmart_df; 
+BY STORE; 
+ID DATE INTERVAL=QTR ACCUMULATE=TOTAL; 
+VAR GROWTH_RATE; 
+RUN; 
+
+/* From timeseries data filterd only Q3 observations */ 
+DATA Quartly Growth; 
+SET walmart_df; 
+WHERE QTR(DATE)=3; 
+RUN; 
+
+PROC SORT DATA=WORK.quartly; 
+BY DESCENDING GROWTH_RATE; 
+RUN;
+
+PROC PRINT DATA=WORK.quartly; 
+RUN;
+
+/* Sales on/off Holidays */
+DATA holiday_on; 
+SET walmart_df; 
+WHERE HOLIDAY_FLAG=1; 
+RUN; 
+
+DATA holiday_off; 
+SET walmart_df; 
+WHERE HOLIDAY_FLAG=0; 
+RUN;
+
+/* Calculate the mean weekly_sales of the holiday PERIOD */ 
+PROC MEANS DATA=work.HOLIDAY_on; 
+OUTPUT OUT=MEAN_HOLIDAY; 
+VAR WEEKLY_SALES;
+RUN;
+
+/* Calculate the mean weekly_sales of the non-holiday PERIOD */ 
+PROC MEANS DATA=work.HOLIDAY_OFF; 
+OUTPUT OUT=MEAN_NON_HOLIDAY; 
+VAR WEEKLY_SALES;
+RUN;
+
+/* Plot histogram for non-holiday weekly sales */
+TITLE 'Non-Holiday Weekly Sales';
+proc univariate data=walmart_df;
+var Weekly_Sales;
+where Holiday_flag = 0; /* Filter by non-holiday sales */
+histogram / normal; /* Plot histogram with normal distribution curve */
+run;
+
+/* Plot histogram for holiday weekly sales */
+TITLE 'Holiday Weekly Sales';
+proc univariate data=walmart_df;
+var Weekly_Sales;
+where Holiday_flag = 1; /* Filter by holiday sales */
+histogram / normal; /* Plot histogram with normal distribution curve */
+run;
+
+/* Regression Analysis */
+PROC REG DATA=walmart_df; 
+MODEL WEEKLY_SALES=CPI UNEMPLOYMENT FUEL_PRICE HOLIDAY_FLAG TEMPERATURE; 
+RUN;
+
+
+/* Time Series Analysis */
+PROC ARIMA DATA=Walmart_df; 
+PLOTS=( FORECAST(FORECAST FORECASTONLY)); 
+IDENTIFY VAR=WEEKLY_SALES(1); 
+ESTIMATE P=(1 2 3) Q=1 METHOD=ML; 
+FORECAST LEAD=6 BACK=0 ALPHA=0.05;
+OUTLIER; 
+RUN;
